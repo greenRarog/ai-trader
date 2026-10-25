@@ -185,21 +185,7 @@ BACKUP_DIR=/path/to/private-backups BACKUP_KEEP=30 bash scripts/backup-db.sh --v
 слепое удаление рабочего тома или `pg_restore --clean` в рабочую БД.
 Сценарий автоматического разрушительного восстановления намеренно не добавлен.
 
-## GitHub
-
-Репозиторий предназначен для `GreenRarog/ai-trader`, приватный. Первичная публикация
-готового локального коммита:
-
-```bash
-bash scripts/publish-github.sh
-```
-
-Нужны GitHub CLI (`gh`) и `gh auth login` для GreenRarog. Одного SSH-ключа хватает
-для push, но не для создания репозитория через API. Скрипт проверяет аккаунт,
-приватность цели, чистоту рабочей копии и секреты в staged-файлах и истории.
-Существующие настройки origin не перезаписываются; force push не используется.
-Если создание прошло, а push нет, повтор использует тот же приватный репозиторий.
-Контракт: [gh repo create](https://cli.github.com/manual/gh_repo_create).
+## CI
 
 GitHub Actions запускает изолированные Go/race/PostgreSQL-тесты через Compose.
 Секреты и настоящие брокерские операции для CI не нужны.

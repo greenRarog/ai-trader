@@ -8,7 +8,6 @@ bin/
 .backups/
 *.dump
 *.dump.sha256
-*.bundle
 
 __pycache__/
 *.pyc
