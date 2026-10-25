@@ -1,0 +1,29 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check tracked files for secrets
+        run: python3 scripts/check-secrets.py
+      - name: Prepare disposable test configuration
+        run: cp .env.example .env
+      - name: Validate scripts and Compose
+        run: |
+          bash -n scripts/*.sh
+          docker compose --profile test --profile restore-check config --quiet
+          python3 -m py_compile scripts/*.py
+          python3 scripts/test-ops.py
+      - name: Run race and PostgreSQL integration tests
+        run: docker compose --profile test run --rm --build tests
+      - name: Stop disposable services
+        if: always()
+        run: docker compose --profile test down --volumes

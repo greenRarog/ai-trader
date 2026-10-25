@@ -1,0 +1,16 @@
+.env
+.env.*
+.git
+bin
+.tools
+.runtime/
+
+.backups/
+*.dump
+*.dump.sha256
+*.bundle
+
+__pycache__/
+*.pyc
+
+.state/

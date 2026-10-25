@@ -1,0 +1,71 @@
+services:
+  trader:
+    build: .
+    env_file: .env
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ai_trader}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./.runtime/postgres:/var/run/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  postgres-test:
+    image: postgres:17-bookworm
+    profiles: [test]
+    environment:
+      POSTGRES_USER: ai_trader_test
+      POSTGRES_DB: ai_trader_test
+      POSTGRES_PASSWORD: local_test_only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    profiles: [test]
+    build:
+      context: .
+      target: build
+    environment:
+      TEST_DATABASE_URL: postgres://ai_trader_test:local_test_only@postgres-test:5432/ai_trader_test?sslmode=disable
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    command: [go, test, -race, -timeout, 60s, ./...]
+
+  postgres-restorecheck:
+    image: postgres:17-bookworm
+    profiles: [restore-check]
+    environment:
+      POSTGRES_USER: restore_check
+      POSTGRES_DB: restore_check
+      POSTGRES_PASSWORD: local_restore_check_only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres_data:
