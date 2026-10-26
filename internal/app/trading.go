@@ -18,7 +18,8 @@ import (
 func tradingDB(ctx context.Context,c config.Config)(*storage.Store,error){
  if c.AccountID==""{return nil,fmt.Errorf("TINVEST_ACCOUNT_ID is required")};dsn,err:=config.DatabaseURL();if err!=nil{return nil,err};return storage.Open(ctx,dsn)
 }
-func accountOnly(ctx context.Context,c config.Config,api *tinvest.Client)(*analysis.AccountState,error){
+type tradingBroker interface { analysisBroker; execution.Broker }
+func accountOnly(ctx context.Context,c config.Config,api analysisBroker)(*analysis.AccountState,error){
  if c.Token==""{return nil,fmt.Errorf("TINVEST_TOKEN is required")};if err:=checkAccount(ctx,api,c.AccountID);err!=nil{return nil,err}
  positions,err:=api.Snapshot(ctx,c.AccountID,false);if err!=nil{return nil,err};portfolio,err:=api.Snapshot(ctx,c.AccountID,true);if err!=nil{return nil,err};orders,err:=api.OpenOrderCount(ctx,c.AccountID);if err!=nil{return nil,err};return analysis.DecodeAccount(positions,portfolio,orders)
 }
@@ -40,7 +41,9 @@ func runTrading(ctx context.Context,c config.Config,args []string,out io.Writer)
 func runOrders(ctx context.Context,c config.Config,args []string,out io.Writer)error{
  if len(args)==0{return fmt.Errorf("use orders list|execute|reconcile|cancel|events")}
  fs:=flags("orders "+args[0]);id:=fs.String("id","","persisted intent UUID");analysisID:=fs.String("analysis","","saved AI analysis UUID")
+ sandboxTest:=fs.Bool("sandbox-test",false,"explicitly execute a one-lot owner risk-check in Sandbox")
  if err:=parse(fs,args[1:]);err!=nil{return err}
+ if *sandboxTest&&args[0]!="execute"{return fmt.Errorf("--sandbox-test is only valid with orders execute")}
  db,err:=tradingDB(ctx,c);if err!=nil{return err};defer db.Close()
  if args[0]=="list"{if *id!=""{intent,err:=db.GetIntent(ctx,*id);if err!=nil{return err};if intent.AccountID!=c.AccountID{return fmt.Errorf("intent belongs to another account")};return printJSON(out,intent)};items,err:=db.ListIntents(ctx,c.AccountID,false);if err!=nil{return err};return printJSON(out,items)}
  if args[0]=="events"{if *id==""{return fmt.Errorf("--id is required")};events,err:=db.OrderEvents(ctx,c.AccountID,*id);if err!=nil{return err};return printJSON(out,events)}
@@ -59,7 +62,10 @@ func runOrders(ctx context.Context,c config.Config,args []string,out io.Writer)e
  }
  if args[0]=="execute"{
   if *analysisID==""{return fmt.Errorf("orders execute requires --analysis UUID")}
-  intent,err:=db.CreateIntent(ctx,c.AccountID,*analysisID);if err!=nil{return err};*id=intent.ID
+  var intent execution.Intent
+  var err error
+  if *sandboxTest{intent,err=db.CreateSandboxTestIntent(ctx,c.AccountID,*analysisID)}else{intent,err=db.CreateIntent(ctx,c.AccountID,*analysisID)}
+  if err!=nil{return err};*id=intent.ID
  }else if *id==""{return fmt.Errorf("--id is required")}
  intent,err:=db.GetIntent(ctx,*id);if err!=nil{return err};if intent.AccountID!=c.AccountID{return fmt.Errorf("intent belongs to another Sandbox account")}
  if _,err:=fmt.Fprintln(out,"Sandbox order intent:",intent.ID);err!=nil{return err}
@@ -83,7 +89,7 @@ func runOrders(ctx context.Context,c config.Config,args []string,out io.Writer)e
  if execution.Terminal(result.State){return verifyAfterExecution(ctx,c,db,api)}
  return nil
 }
-func preflightOrder(ctx context.Context,c config.Config,db *storage.Store,api *tinvest.Client,intent execution.Intent)(execution.Prepared,error){
+func preflightOrder(ctx context.Context,c config.Config,db *storage.Store,api analysisBroker,intent execution.Intent)(execution.Prepared,error){
  var prepared execution.Prepared
  control,err:=db.TradingControl(ctx,c.AccountID);if err!=nil{return prepared,err};if control.Paused||!control.Initialized{return prepared,fmt.Errorf("Sandbox trading paused/uninitialized; use trading resume")}
  if intent.AnalysisCreatedAt.IsZero()||time.Since(intent.AnalysisCreatedAt)>execution.MaxAnalysisAge{return prepared,fmt.Errorf("intent is older than 10 minutes; run a new analyze")}
@@ -99,7 +105,7 @@ func preflightOrder(ctx context.Context,c config.Config,db *storage.Store,api *t
  // the durable submitting transition. The limit price bounds subsequent drift.
  return execution.Prepared{Request:request,Snapshot:snapshot,Risk:report},nil
 }
-func verifyAfterExecution(ctx context.Context,c config.Config,db *storage.Store,api *tinvest.Client)error{
+func verifyAfterExecution(ctx context.Context,c config.Config,db *storage.Store,api analysisBroker)error{
  state,err:=accountOnly(ctx,c,api);if err!=nil{_ = db.Pause(context.Background(),c.AccountID,"post-execution account read failed");return err}
  if err:=db.VerifyAccount(ctx,c.AccountID,state,true);err!=nil{_ = db.Pause(context.Background(),c.AccountID,"post-execution ledger mismatch");return err}
  _,err=db.RecordEquity(ctx,c.AccountID,"",time.Now().UTC(),state.EquityNano);return err

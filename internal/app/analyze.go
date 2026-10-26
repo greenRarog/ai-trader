@@ -85,7 +85,14 @@ func candidateKeys(c config.Config, input string) ([]string, error) {
 func analyze(ctx context.Context, c config.Config, settings config.Analysis, keys []string,
  broker analysisBroker, db analysisStore, model decisionModel, out io.Writer) error {
  provider:=settings.Provider;if provider==""{provider="openai_api"}
- id,err:=db.Begin(ctx,c.AccountID,provider,settings.Model,analysis.PromptVersion);if err!=nil{return err}
+ var id string
+ var err error
+ if settings.Automatic {
+  automatic,ok:=db.(interface{BeginAutomatic(context.Context,string,string,string,string)(string,error)})
+  if !ok{return fmt.Errorf("automatic analysis requires durable execution provenance")}
+  id,err=automatic.BeginAutomatic(ctx,c.AccountID,provider,settings.Model,analysis.PromptVersion)
+ }else{id,err=db.Begin(ctx,c.AccountID,provider,settings.Model,analysis.PromptVersion)}
+ if err!=nil{return err}
  if _,err:=fmt.Fprintln(out,"Analysis ID:",id);err!=nil{return err}
  economy:=&analysis.Economy{}
  finish:=func(status string,result analysis.Result,cause error)error{

@@ -22,6 +22,7 @@ jobs:
           docker compose --profile test --profile restore-check config --quiet
           python3 -m py_compile scripts/*.py
           python3 scripts/test-ops.py
+          python3 scripts/test-daily-report.py
       - name: Run race and PostgreSQL integration tests
         run: docker compose --profile test run --rm --build tests
       - name: Stop disposable services

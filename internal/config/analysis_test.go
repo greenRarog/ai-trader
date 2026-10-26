@@ -88,3 +88,13 @@ func TestEconomySettings(t *testing.T){
  c,err:=LoadAnalysis();if err!=nil||c.DailyLimit!=2||c.MaxInputBytes!=32768{t.Fatalf("%+v %v",c,err)}
  for _,tt:=range []struct{key,value string}{{"AI_DAILY_CALL_LIMIT","0"},{"AI_CACHE_TTL","11m"},{"AI_MAX_INPUT_BYTES","0"}}{t.Run(tt.key,func(t *testing.T){t.Setenv(tt.key,tt.value);if _,err:=LoadAnalysis();err==nil{t.Fatal("accepted invalid economy setting")}})}
 }
+
+func TestAutomaticExecutionMustBeExplicit(t *testing.T){
+ t.Setenv("AI_PROVIDER","codex_cli");t.Setenv("DATABASE_URL","postgres://unused")
+ t.Setenv("AUTOMATION_EXECUTE_ORDERS","false")
+ c,err:=LoadAnalysis();if err!=nil||c.AutoExecute||c.Automatic{t.Fatal("execution enabled implicitly",err)}
+ t.Setenv("AUTOMATION_EXECUTE_ORDERS","true")
+ c,err=LoadAnalysis();if err!=nil||!c.AutoExecute||c.Automatic{t.Fatal("wrong execution configuration",err)}
+ t.Setenv("AUTOMATION_EXECUTE_ORDERS","invalid")
+ if _,err:=LoadAnalysis();err==nil{t.Fatal("invalid execution flag accepted")}
+}

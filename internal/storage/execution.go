@@ -22,6 +22,14 @@ func(s *Store)AcquireAccount(ctx context.Context,account string)(func(),error){
  return func(){cleanup,cancel:=context.WithTimeout(context.Background(),5*time.Second);defer cancel();_,err:=conn.ExecContext(cleanup,"SELECT pg_advisory_unlock(hashtextextended($1,0))","ai-trader-execution:"+account);if err!=nil{conn.Raw(func(any)error{return driver.ErrBadConn})};conn.Close()},nil
 }
 func(s *Store)CreateIntent(ctx context.Context,account,analysisID string)(execution.Intent,error){
+ return s.createIntent(ctx,account,analysisID,false)
+}
+// CreateSandboxTestIntent explicitly executes an owner's one-lot risk preview.
+// Ordinary execution continues to require an AI provider.
+func(s *Store)CreateSandboxTestIntent(ctx context.Context,account,analysisID string)(execution.Intent,error){
+ return s.createIntent(ctx,account,analysisID,true)
+}
+func(s *Store)createIntent(ctx context.Context,account,analysisID string,sandboxTest bool)(execution.Intent,error){
  var intent execution.Intent
  ctx,cancel:=context.WithTimeout(ctx,10*time.Second);defer cancel()
  // Returning an existing intent prevents any second UUID for the same decision.
@@ -31,7 +39,10 @@ func(s *Store)CreateIntent(ctx context.Context,account,analysisID string)(execut
  var provider,status,sourceAccount string;var created time.Time;var raw []byte
  if err=s.db.QueryRowContext(ctx,"SELECT account_id,provider,status,created_at,result FROM analysis_runs WHERE id=$1::uuid",analysisID).Scan(&sourceAccount,&provider,&status,&created,&raw);err!=nil{return intent,fmt.Errorf("analysis was not found")}
  var result analysis.Result
- if json.Unmarshal(raw,&result)!=nil||sourceAccount!=account||status!="validated_proposal"||(provider!="codex_cli"&&provider!="openai_api")||result.Decision==nil||result.Risk==nil||!result.Risk.Allowed||(result.Decision.Action!="BUY"&&result.Decision.Action!="SELL"){return intent,fmt.Errorf("only a validated BUY/SELL decision from an AI provider can be executed")}
+ if json.Unmarshal(raw,&result)!=nil||sourceAccount!=account||status!="validated_proposal"||result.Decision==nil||result.Risk==nil||!result.Risk.Allowed||(result.Decision.Action!="BUY"&&result.Decision.Action!="SELL"){return intent,fmt.Errorf("only a validated BUY/SELL decision with allowed risk can be executed")}
+ if sandboxTest {
+  if provider!="manual_check"||result.Decision.Lots!=1{return intent,fmt.Errorf("Sandbox test requires an owner's validated one-lot risk-check")}
+ }else if provider!="codex_cli"&&provider!="openai_api"{return intent,fmt.Errorf("only a validated BUY/SELL decision from an AI provider can be executed")}
  if time.Since(created)>execution.MaxAnalysisAge||created.After(time.Now().Add(time.Minute)){return intent,fmt.Errorf("analysis is older than 10 minutes; run a new analyze")}
  id,err:=UUID();if err!=nil{return intent,err};decision,_:=json.Marshal(result.Decision)
  _,err=s.db.ExecContext(ctx,`INSERT INTO order_intents(id,analysis_id,account_id,state,decision) VALUES($1,$2,$3,'prepared',$4::jsonb) ON CONFLICT(analysis_id) DO NOTHING`,id,analysisID,account,string(decision))

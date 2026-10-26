@@ -128,3 +128,8 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
 );
 CREATE INDEX IF NOT EXISTS notification_pending_idx ON notification_outbox(account_id,next_attempt_at) WHERE state='queued';
 INSERT INTO schema_migrations(version) VALUES(6) ON CONFLICT DO NOTHING;
+
+-- v7: durable opt-in provenance for automatic Sandbox execution/recovery.
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS automatic_execution boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS automatic_analysis_idx ON analysis_runs(account_id,created_at) WHERE automatic_execution;
+INSERT INTO schema_migrations(version) VALUES(7) ON CONFLICT DO NOTHING;

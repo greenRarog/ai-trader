@@ -15,11 +15,11 @@ import (
  "ai-trader/internal/tinvest"
 )
 
-const Help = `AI Trader — Sandbox only, analysis + explicitly invoked Sandbox execution
+const Help = `AI Trader — Sandbox only, analysis and optional automatic execution
 Commands:
   db migrate | db ping
   analyze [--instruments SBER:TQBR,GAZP:TQBR] [--refresh]
-  automation tick | automation run (analysis only; two daily windows)
+  automation tick [--now] | automation run (two daily windows)
   usage [--days 7]
   report [--days 30]
   notify test | notify flush | notify list
@@ -29,6 +29,7 @@ Commands:
   risk-check --action BUY|SELL --instrument SBER:TQBR --lots 1
   trading status | trading pause | trading resume
   orders execute --analysis UUID
+  orders execute --analysis UUID --sandbox-test (owner risk-check, exactly one lot)
   orders list [--id UUID] | orders events --id UUID
   orders reconcile [--id UUID] | orders cancel --id UUID
   cashflow list | cashflow funding [--id UUID]
@@ -41,7 +42,9 @@ Commands:
   quotes [--instruments SBER:TQBR,GAZP:TQBR]
 
 analyze --refresh bypasses cache/daily quota, but never data or safety gates.
-analyze and automation never submit orders. orders execute places Sandbox limit orders only.
+analyze never submits orders. automation executes its own BUY/SELL only with AUTOMATION_EXECUTE_ORDERS=true.
+automation tick --now explicitly runs now, keeping the daily quota and safety gates.
+orders execute places Sandbox limit orders only.
 AI_PROVIDER: codex_cli (host launcher) | openai_api.
 INSTRUMENT_MODE: protective (allowlist) | experimental (list ignored).
 Mutations are never retried automatically. Funding is ADDITIVE on every invocation.
@@ -119,7 +122,7 @@ func Run(ctx context.Context,c config.Config,args []string,out io.Writer) error 
 }
 func flags(name string) *flag.FlagSet { fs:=flag.NewFlagSet(name,flag.ContinueOnError); fs.SetOutput(io.Discard); return fs }
 func parse(fs *flag.FlagSet,args []string) error { if err:=fs.Parse(args); err!=nil { return err }; if fs.NArg()!=0 { return fmt.Errorf("unexpected positional arguments") }; return nil }
-func checkAccount(ctx context.Context,api *tinvest.Client,id string) error {
+func checkAccount(ctx context.Context,api interface{Accounts(context.Context)(tinvest.Accounts,error)},id string) error {
  if id=="" { return fmt.Errorf("set TINVEST_ACCOUNT_ID explicitly") }
  accounts,err:=api.Accounts(ctx); if err!=nil { return err }
  for _,account:=range accounts.Accounts { if account.ID==id && account.Status=="ACCOUNT_STATUS_OPEN" { return nil } }

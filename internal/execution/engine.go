@@ -84,13 +84,13 @@ func ValidateState(intent Intent,state tinvest.OrderState)(string,int64,int64,er
  pieces,e:=amount.Mul(executed,lot);if e!=nil{return bad("execution quantity overflow")}
  limit,e:=amount.Parse(request.Price);if e!=nil||limit<=0{return bad("invalid persisted price")}
  bound,e:=amount.Mul(limit,pieces);if e!=nil{return bad("execution value overflow")}
- gross:=total-fee
+ // Sandbox totalOrderAmount is the executed gross amount; commission is separate.
+ gross:=total
  if (intent.Decision.Action=="BUY"&&gross>bound)||(intent.Decision.Action=="SELL"&&gross<bound){return bad("fill price exceeds persisted limit")}
  maxFee,e:=amount.BPS(gross,5,true);if e!=nil{return bad("fee overflow")};maxFee,e=amount.CeilKopeck(maxFee);if e!=nil||fee>maxFee{return bad("unexpected Sandbox commission")}
- // T-Invest totalOrderAmount includes commission. For SELL remove the fee
- // included in total to get gross, then deduct the fee paid from proceeds.
- cash:=-total
- if intent.Decision.Action=="SELL"{twice,e:=amount.Mul(fee,2);if e!=nil{return bad("fee overflow")};cash=total-twice;if cash<0{return bad("negative sale proceeds")}}
+ cost,e:=amount.Add(total,fee);if e!=nil{return bad("purchase cash overflow")}
+ cash:=-cost
+ if intent.Decision.Action=="SELL"{cash=total-fee;if cash<0{return bad("negative sale proceeds")}}
  return status,cash,fee,nil
 }
 func Cancel(ctx context.Context,db Store,broker Broker,id string)(Intent,error){

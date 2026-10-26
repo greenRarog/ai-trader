@@ -10,6 +10,8 @@ import (
 )
 
 type Analysis struct {
+	AutoExecute bool
+	Automatic bool // internal: this run was started by automation with execution enabled
 	Provider string
 	CodexBinary string
 	CodexModel string
@@ -48,6 +50,7 @@ func LoadAnalysis() (Analysis, error) {
 	c := Analysis{Provider: value("AI_PROVIDER", "openai_api"), APIKey: strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		Model: strings.TrimSpace(value("OPENAI_MODEL", "gpt-6-luna"))}
 	var err error
+ c.AutoExecute,err=strconv.ParseBool(value("AUTOMATION_EXECUTE_ORDERS","false"));if err!=nil{return c,fmt.Errorf("AUTOMATION_EXECUTE_ORDERS must be true or false")}
  c.DailyLimit,err=strconv.Atoi(value("AI_DAILY_CALL_LIMIT","2"));if err!=nil||c.DailyLimit<1||c.DailyLimit>100{return c,fmt.Errorf("AI_DAILY_CALL_LIMIT must be 1..100")}
  c.CacheTTL,err=time.ParseDuration(value("AI_CACHE_TTL","10m"));if err!=nil||c.CacheTTL<=0||c.CacheTTL>10*time.Minute{return c,fmt.Errorf("AI_CACHE_TTL must be within (0,10m]")}
  c.MaxInputBytes,err=strconv.Atoi(value("AI_MAX_INPUT_BYTES","32768"));if err!=nil||c.MaxInputBytes<1024||c.MaxInputBytes>262144{return c,fmt.Errorf("AI_MAX_INPUT_BYTES must be 1024..262144")}

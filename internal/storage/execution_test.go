@@ -105,3 +105,37 @@ func TestPendingFundingCannotBecomeTrackingAnchor(t *testing.T){
  if err:=db.InitializeAccount(ctx,account,state,time.Now().UTC());err==nil{t.Fatal("anchor captured during ambiguous funding")}
  control,err:=db.TradingControl(ctx,account);if err!=nil||control.Initialized{t.Fatal("failed initialization changed anchor")}
 }
+
+func TestOwnerSandboxExecutionRequiresExplicitOneLotPath(t *testing.T){
+ db,ctx,account:=executionTestDB(t)
+ save:=func(lots int64,allowed bool)string{
+  t.Helper()
+  id,err:=db.Begin(ctx,account,"manual_check","owner-proposal",analysis.PromptVersion);if err!=nil{t.Fatal(err)}
+  if err:=db.Prepare(ctx,id,analysis.Snapshot{},json.RawMessage(`{}`));err!=nil{t.Fatal(err)}
+  result:=analysis.Result{Provider:"manual_check",Decision:&analysis.Decision{Action:"BUY",Ticker:"SBER",ClassCode:"TQBR",Lots:lots},Risk:&analysis.RiskReport{Allowed:allowed}}
+  if err:=db.Finish(ctx,id,"validated_proposal",result,"");err!=nil{t.Fatal(err)}
+  return id
+ }
+ id:=save(1,true)
+ if _,err:=db.CreateIntent(ctx,account,id);err==nil{t.Fatal("ordinary execution accepted owner preview")}
+ if _,err:=db.CreateSandboxTestIntent(ctx,account,save(2,true));err==nil{t.Fatal("test accepted more than one lot")}
+ if _,err:=db.CreateSandboxTestIntent(ctx,account,save(1,false));err==nil{t.Fatal("test bypassed risk rejection")}
+ if _,err:=db.CreateSandboxTestIntent(ctx,account,savedBuy(t,db,ctx,account));err==nil{t.Fatal("AI decision was relabelled as owner test")}
+ first,err:=db.CreateSandboxTestIntent(ctx,account,id);if err!=nil{t.Fatal(err)}
+ again,err:=db.CreateSandboxTestIntent(ctx,account,id);if err!=nil||first.ID!=again.ID{t.Fatal("test generated a second intent")}
+}
+
+func TestAutomaticCandidatesRespectProvenanceAgeAndTerminalState(t *testing.T){
+ db,ctx,account:=executionTestDB(t)
+ id:=savedBuy(t,db,ctx,account)
+ check:=func(expected int){t.Helper();ids,err:=db.AutomaticCandidates(ctx,account);if err!=nil||len(ids)!=expected{t.Fatalf("candidates=%v expected=%d err=%v",ids,expected,err)}}
+ check(0)
+ update:=func(query string,args ...any){t.Helper();if _,err:=db.db.ExecContext(ctx,query,args...);err!=nil{t.Fatal(err)}}
+ update("UPDATE analysis_runs SET automatic_execution=true WHERE id=$1",id);check(1)
+ update("UPDATE analysis_runs SET provider='manual_check' WHERE id=$1",id);check(0)
+ update("UPDATE analysis_runs SET provider='codex_cli',status='reused' WHERE id=$1",id);check(0)
+ update("UPDATE analysis_runs SET status='validated_proposal',created_at=now()-interval '11 minutes' WHERE id=$1",id);check(0)
+ update("UPDATE analysis_runs SET created_at=now() WHERE id=$1",id);check(1)
+ intent,err:=db.CreateIntent(ctx,account,id);if err!=nil{t.Fatal(err)};check(1)
+ if err:=db.MarkOrderError(ctx,intent.ID,"blocked","fresh risk rejected");err!=nil{t.Fatal(err)};check(0)
+}

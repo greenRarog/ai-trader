@@ -46,13 +46,19 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) Begin(ctx context.Context, account, provider, model, promptVersion string) (string, error) {
+ return s.begin(ctx,account,provider,model,promptVersion,false)
+}
+func (s *Store) BeginAutomatic(ctx context.Context, account, provider, model, promptVersion string) (string, error) {
+ return s.begin(ctx,account,provider,model,promptVersion,true)
+}
+func (s *Store) begin(ctx context.Context, account, provider, model, promptVersion string, automatic bool) (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil { return "", fmt.Errorf("generate analysis ID") }
 	b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80
 	id := fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second); defer cancel()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO analysis_runs(id,status,account_id,provider,model,prompt_version)
-		VALUES ($1,'collecting',$2,$3,$4,$5)`, id, account, provider, model, promptVersion)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO analysis_runs(id,status,account_id,provider,model,prompt_version,automatic_execution)
+		VALUES ($1,'collecting',$2,$3,$4,$5,$6)`, id, account, provider, model, promptVersion,automatic)
 	if err != nil { return "", fmt.Errorf("save analysis start failed; run db migrate first") }
 	return id, nil
 }
@@ -87,7 +93,7 @@ func (s *Store) History(ctx context.Context, id string, limit int) (json.RawMess
 		rows, err = s.db.QueryContext(ctx, `SELECT row_to_json(r) FROM(SELECT a.*,(SELECT row_to_json(i) FROM order_intents i WHERE i.analysis_id=a.id) AS sandbox_execution FROM analysis_runs a WHERE a.id=$1::uuid) r`, id)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `SELECT row_to_json(r) FROM (
-			SELECT id,created_at,finished_at,status,provider,model,prompt_version,
+			SELECT id,created_at,finished_at,status,provider,model,prompt_version,automatic_execution,
 			result->'decision' AS decision,result->'usage' AS usage,result->'risk' AS risk,result->'economy' AS economy,model_attempted_at,error,execution_enabled,(SELECT state FROM order_intents WHERE analysis_id=analysis_runs.id) AS sandbox_order_state
 			FROM analysis_runs ORDER BY created_at DESC,id LIMIT $1) r`, limit)
 	}

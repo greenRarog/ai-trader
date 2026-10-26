@@ -32,7 +32,7 @@ func executionFixture()(*memoryStore,*fakeExecutionBroker,Preflight){
  report:=analysis.RiskReport{Allowed:true,Pieces:2,EstimatedValueNano:"200400000000"}
  request,_:=BuildLimit(i,snapshot,report)
  preflight:=func(context.Context,Intent)(Prepared,error){return Prepared{Request:request,Snapshot:snapshot,Risk:report},nil}
- state:=tinvest.OrderState{ID:"exchange",UID:"uid",Direction:"ORDER_DIRECTION_BUY",OrderType:"ORDER_TYPE_LIMIT",Status:"EXECUTION_REPORT_STATUS_FILL",LotsRequested:"2",LotsExecuted:"2",Total:tinvest.Money{Currency:"rub",Units:"200",Nano:100000000},Commission:tinvest.Money{Currency:"rub",Units:"0",Nano:100000000},Raw:json.RawMessage(`{}`)}
+ state:=tinvest.OrderState{ID:"exchange",UID:"uid",Direction:"ORDER_DIRECTION_BUY",OrderType:"ORDER_TYPE_LIMIT",Status:"EXECUTION_REPORT_STATUS_FILL",LotsRequested:"2",LotsExecuted:"2",Total:tinvest.Money{Currency:"rub",Units:"200"},Commission:tinvest.Money{Currency:"rub",Units:"0",Nano:100000000},Raw:json.RawMessage(`{}`)}
  return &memoryStore{intent:i},&fakeExecutionBroker{state:state},preflight
 }
 func TestSubmitOnceAndRecordActualFill(t *testing.T){
@@ -55,7 +55,7 @@ func TestLostAcknowledgementNeverReposts(t *testing.T){
  if result,err:=Perform(context.Background(),db,broker,db.intent.ID,preflight);err!=nil||result.State!="filled"||broker.posts!=1||!broker.lookupRequestID{t.Fatalf("unsafe recovery: %+v %v",result,err)}
 }
 func TestPartialFillThenCancelIsCumulative(t *testing.T){
- db,broker,preflight:=executionFixture();broker.state.Status="EXECUTION_REPORT_STATUS_PARTIALLYFILL";broker.state.LotsExecuted="1";broker.state.Total=tinvest.Money{Currency:"rub",Units:"100",Nano:50000000};broker.state.Commission=tinvest.Money{Currency:"rub",Nano:50000000}
+ db,broker,preflight:=executionFixture();broker.state.Status="EXECUTION_REPORT_STATUS_PARTIALLYFILL";broker.state.LotsExecuted="1";broker.state.Total=tinvest.Money{Currency:"rub",Units:"100"};broker.state.Commission=tinvest.Money{Currency:"rub",Nano:50000000}
  result,err:=Perform(context.Background(),db,broker,db.intent.ID,preflight);if err!=nil||result.State!="partial"{t.Fatalf("%+v %v",result,err)}
  result,err=Cancel(context.Background(),db,broker,db.intent.ID)
  if err!=nil||result.State!="cancelled"||result.ExecutedLots!=1||result.CashDeltaNano!=-100050000000||broker.posts!=1||broker.cancels!=1{t.Fatalf("partial cancellation lost accounting: %+v %v",result,err)}
@@ -89,7 +89,18 @@ func TestTickRounding(t *testing.T){
 func TestSellAccountingIncludesCommission(t *testing.T){
  db,broker,preflight:=executionFixture();p,_:=preflight(context.Background(),db.intent)
  db.intent.Decision.Action="SELL";p.Request.Direction="ORDER_DIRECTION_SELL";db.intent.Request=&p.Request;db.intent.Snapshot=&p.Snapshot
- broker.state.Direction="ORDER_DIRECTION_SELL";broker.state.Total=tinvest.Money{Currency:"rub",Units:"202",Nano:110000000};broker.state.Commission=tinvest.Money{Currency:"rub",Nano:110000000}
+ broker.state.Direction="ORDER_DIRECTION_SELL";broker.state.Total=tinvest.Money{Currency:"rub",Units:"202"};broker.state.Commission=tinvest.Money{Currency:"rub",Nano:100000000}
  state,cash,fee,err:=ValidateState(db.intent,broker.state)
- if err!=nil||state!="filled"||cash!=201890000000||fee!=110000000{t.Fatalf("wrong sale accounting: state=%s cash=%d fee=%d err=%v",state,cash,fee,err)}
+ if err!=nil||state!="filled"||cash!=201900000000||fee!=100000000{t.Fatalf("wrong sale accounting: state=%s cash=%d fee=%d err=%v",state,cash,fee,err)}
+}
+
+// Regression from the actual Sandbox fill and cash balance on 2026-10-26.
+func TestSandboxObservedBuyCommissionIsSeparateFromTotal(t *testing.T){
+ db,broker,preflight:=executionFixture();p,_:=preflight(context.Background(),db.intent)
+ db.intent.Decision.Lots=1;p.Request.Price=tinvest.Money{Units:"292"};db.intent.Request=&p.Request;db.intent.Snapshot=&p.Snapshot
+ broker.state.LotsRequested="1";broker.state.LotsExecuted="1"
+ broker.state.Total=tinvest.Money{Currency:"rub",Units:"291",Nano:780000000}
+ broker.state.Commission=tinvest.Money{Currency:"rub",Nano:145890000}
+ _,cash,fee,err:=ValidateState(db.intent,broker.state)
+ if err!=nil||cash!=-291925890000||fee!=145890000{t.Fatalf("observed Sandbox accounting: cash=%d fee=%d err=%v",cash,fee,err)}
 }

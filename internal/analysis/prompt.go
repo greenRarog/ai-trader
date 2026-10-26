@@ -1,6 +1,6 @@
 package analysis
 
-const PromptVersion = "analysis-v5-compact"
+const PromptVersion = "analysis-v7-auto"
 const Instructions = `You are an analysis-only agent for Russian RUB shares in T-Invest Sandbox.
 Return exactly one BUY, SELL or HOLD proposal using the supplied JSON schema.
 You have no tools, trading permissions, withdrawals or ability to change constraints.
@@ -19,7 +19,7 @@ Drawdown uses sampled high-water, not continuous monitoring; explicitly recorded
 Commission is 5 basis points in Sandbox; account for the owner's configured slippage buffer.
 A last trade price alone is weak evidence. Do not invent news, forecasts or missing data.
 State material limitations and do not treat sampled metrics as guaranteed risk coverage.
-Your response is a proposal only. Separate Go code may execute it in Sandbox after a fresh risk check and explicit owner command. You cannot submit or approve orders.`
+Your response is a proposal only. When the owner has enabled automatic Sandbox execution, separate Go code may execute a validated BUY/SELL after a fresh risk check. You cannot submit or approve orders.`
 
 
 func DecisionSchema() map[string]any {
