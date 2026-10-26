@@ -98,3 +98,11 @@ func TestAutomaticExecutionMustBeExplicit(t *testing.T){
  t.Setenv("AUTOMATION_EXECUTE_ORDERS","invalid")
  if _,err:=LoadAnalysis();err==nil{t.Fatal("invalid execution flag accepted")}
 }
+
+func TestConfiguredWorkingHours(t *testing.T){
+ t.Setenv("AI_PROVIDER","codex_cli");t.Setenv("DATABASE_URL","postgres://unused")
+ t.Setenv("AUTOMATION_START_MSK","09:30");t.Setenv("AUTOMATION_END_MSK","15:00");t.Setenv("AUTOMATION_ANALYSIS_TIMES_MSK","09:30,14:00")
+ c,err:=LoadAnalysis();if err!=nil||!c.Hours.Enabled||c.Hours.Start!=570||c.Hours.End!=900||len(c.Hours.Analyses)!=2{t.Fatalf("working hours not loaded: %+v %v",c.Hours,err)}
+ t.Setenv("AUTOMATION_ANALYSIS_TIMES_MSK","09:30,14:45")
+ if _,err:=LoadAnalysis();err==nil{t.Fatal("accepted analysis without completion buffer")}
+}

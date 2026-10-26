@@ -80,14 +80,16 @@ bash scripts/trader.sh usage --days 7
 AUTOMATION_EXECUTE_ORDERS=true
 ```
 
-Фоновый трейдер, ежедневная проверяемая резервная копия и вечерний отчёт:
+Фоновый трейдер, ежедневная проверяемая резервная копия и отчёт:
 
 ```bash
 python3 scripts/install-services.py
 systemctl --user status ai-trader.service ai-trader-backup.timer
 ```
 
-Каждый день в 21:15 МСК сводка сохраняется в `.reports/latest.txt`.
+Время задач задаётся через `DAILY_REPORT_TIME_MSK` и `BACKUP_TIME_MSK`.
+В текущем сокращённом режиме трейдер работает 09:30–15:00 МСК, отчёт — в 15:00.
+Сводка сохраняется в `.reports/latest.txt`; утренний запуск — `bash scripts/start-day.sh`.
 Проверка работы и чтение результатов: [ежедневный контроль](docs/DAILY_CHECK.md).
 
 Для работы после перезагрузки без входа в сеанс нужен user lingering:

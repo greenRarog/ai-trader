@@ -58,4 +58,16 @@ elif 'psql' in args:
         service=(ROOT/'.state/systemd/ai-trader.service').read_text()
         self.assertIn(' automation run',service);self.assertIn('EnvironmentFile='+str(ROOT/'.env'),service)
         self.assertNotIn('POSTGRES_PASSWORD=',service);self.assertNotIn('TELEGRAM_BOT_TOKEN=',service)
+    def test_custom_report_and_backup_timers(self):
+        settings=self.env.copy();settings.update(DAILY_REPORT_TIME_MSK='15:00',BACKUP_TIME_MSK='14:50')
+        subprocess.run([sys.executable,str(ROOT/'scripts/install-services.py'),'--render-only'],check=True,capture_output=True,env=settings)
+        report=(ROOT/'.state/systemd/ai-trader-report.timer').read_text()
+        backup=(ROOT/'.state/systemd/ai-trader-backup.timer').read_text()
+        self.assertIn('OnCalendar=*-*-* 15:00:00 Europe/Moscow',report)
+        self.assertIn('Persistent=false',report)
+        self.assertIn('OnCalendar=*-*-* 14:50:00 Europe/Moscow',backup)
+        self.assertIn('RandomizedDelaySec=0',backup)
+        settings['DAILY_REPORT_TIME_MSK']='15:00\nExecStart=unexpected'
+        result=subprocess.run([sys.executable,str(ROOT/'scripts/install-services.py'),'--render-only'],capture_output=True,env=settings)
+        self.assertNotEqual(result.returncode,0)
 if __name__=='__main__':unittest.main()

@@ -16,6 +16,7 @@ import (
  "ai-trader/internal/amount"
  "ai-trader/internal/analysis"
  "ai-trader/internal/config"
+ "ai-trader/internal/schedule"
  "ai-trader/internal/storage"
  "ai-trader/internal/tinvest"
 )
@@ -27,11 +28,12 @@ type automaticBroker struct{
  account string
  cash,shares int64
  posts int
+ reads,queries int
  lostResponse bool
  states map[string]tinvest.OrderState
 }
 func testMoney(n int64)tinvest.Money{return tinvest.Money{Currency:"rub",Units:strconv.FormatInt(n/amount.Scale,10),Nano:int32(n%amount.Scale)}}
-func(b *automaticBroker)Accounts(context.Context)(tinvest.Accounts,error){return tinvest.Accounts{Accounts:[]tinvest.Account{{ID:b.account,Status:"ACCOUNT_STATUS_OPEN"}}},nil}
+func(b *automaticBroker)Accounts(context.Context)(tinvest.Accounts,error){b.reads++;return tinvest.Accounts{Accounts:[]tinvest.Account{{ID:b.account,Status:"ACCOUNT_STATUS_OPEN"}}},nil}
 func(b *automaticBroker)Instrument(ctx context.Context,ticker,class string)(tinvest.Instrument,error){i,e:=b.fakeBroker.Instrument(ctx,ticker,class);i.MinPriceIncrement=tinvest.Money{Nano:10000000};return i,e}
 func(b *automaticBroker)Snapshot(_ context.Context,_ string,portfolio bool)(json.RawMessage,error){
  if !portfolio{
@@ -57,7 +59,7 @@ func(b *automaticBroker)PostLimit(_ context.Context,r tinvest.LimitRequest)(tinv
  if b.lostResponse{return tinvest.PostOrderResult{},fmt.Errorf("simulated lost response after execution")}
  return tinvest.PostOrderResult{ID:r.OrderID,Raw:state.Raw},nil
 }
-func(b *automaticBroker)OrderState(_ context.Context,_,id string,_ bool)(tinvest.OrderState,error){s,ok:=b.states[id];if !ok{return s,fmt.Errorf("not found")};return s,nil}
+func(b *automaticBroker)OrderState(_ context.Context,_,id string,_ bool)(tinvest.OrderState,error){b.queries++;s,ok:=b.states[id];if !ok{return s,fmt.Errorf("not found")};return s,nil}
 func(b *automaticBroker)CancelSandbox(context.Context,string,string)error{return fmt.Errorf("unexpected cancellation")}
 type automaticModel struct{action string;calls int;after func()}
 func(m *automaticModel)Respond(context.Context,json.RawMessage)(analysis.Result,error){
@@ -126,4 +128,18 @@ func TestAutomaticDisabledHoldAndEmergencyPauseNeverSubmit(t *testing.T){
   if mode!="pause"&&err!=nil{t.Fatal(err)}
   if b.posts!=0{t.Fatal("unexpected automatic POST")}
  })}
+}
+
+func TestOutsideWorkingHoursBlocksEvenImmediateRequestsAndRecovery(t *testing.T){
+ ctx,db,c,s,b:=automaticFixture(t);m:=&automaticModel{action:"BUY"}
+ // Persist an uncertain submitted order first, so recovery is also tested.
+ b.lostResponse=true
+ if err:=automationTick(ctx,c,s,c.Preferred,db,b,m,io.Discard);err==nil{t.Fatal("expected lost response")}
+ local:=time.Now().In(time.FixedZone("Europe/Moscow",3*3600));minute:=local.Hour()*60+local.Minute()
+ s.Hours=schedule.Hours{Enabled:true,Start:minute+1,End:minute+2}
+ reads,queries,posts,calls:=b.reads,b.queries,b.posts,m.calls
+ for _,immediate:=range []bool{false,true}{
+  if err:=automationTickNow(ctx,c,s,c.Preferred,db,b,m,io.Discard,immediate);err!=nil{t.Fatal(err)}
+ }
+ if b.reads!=reads||b.queries!=queries||b.posts!=posts||m.calls!=calls{t.Fatal("out-of-hours tick made broker/model requests")}
 }

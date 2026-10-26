@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 """Install user units, or render them inside the project with --render-only."""
-import argparse,os,pathlib,shutil,subprocess
+import argparse,os,pathlib,re,shutil,subprocess
 p=argparse.ArgumentParser()
 p.add_argument('--render-only',action='store_true',help='write units under .state/systemd without installing or starting')
 a=p.parse_args()
 root=pathlib.Path(__file__).resolve().parent.parent
+settings={}
+env_file=root/'.env'
+if env_file.exists():
+    for line in env_file.read_text().splitlines():
+        key,sep,value=line.partition('=')
+        if sep and key.strip() in ('DAILY_REPORT_TIME_MSK','BACKUP_TIME_MSK'):
+            settings[key.strip()]=value.strip().strip('"\'')
+def timer_time(key,default):
+    value=os.environ.get(key,settings.get(key,default))
+    if not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]',value):p.error(key+' must use HH:MM format')
+    return value
+report_time=timer_time('DAILY_REPORT_TIME_MSK','21:15')
+backup_time=timer_time('BACKUP_TIME_MSK','03:15')
 if any(c in str(root) for c in '\n\r'):p.error('Project path cannot contain line breaks.')
 if os.geteuid()==0 and not a.render_only:p.error('Run as the same regular user who ran codex login, without sudo.')
 for command in ['bash','docker']:
@@ -41,12 +54,12 @@ Type=oneshot
 TimeoutStartSec=900
 Nice=10
 ''',
-'ai-trader-backup.timer':'''[Unit]
+'ai-trader-backup.timer':f'''[Unit]
 Description=Daily AI Trader verified backup
 
 [Timer]
-OnCalendar=*-*-* 03:15:00 Europe/Moscow
-RandomizedDelaySec=10m
+OnCalendar=*-*-* {backup_time}:00 Europe/Moscow
+RandomizedDelaySec=0
 Persistent=true
 Unit=ai-trader-backup.service
 
@@ -61,12 +74,12 @@ Type=oneshot
 {common}{pre}ExecStart={bash} {q(root/'scripts/daily-report.sh')} --save
 TimeoutStartSec=900
 ''',
-'ai-trader-report.timer':'''[Unit]
-Description=Evening AI Trader operational report
+'ai-trader-report.timer':f'''[Unit]
+Description=Daily AI Trader operational report
 
 [Timer]
-OnCalendar=*-*-* 21:15:00 Europe/Moscow
-Persistent=true
+OnCalendar=*-*-* {report_time}:00 Europe/Moscow
+Persistent=false
 Unit=ai-trader-report.service
 
 [Install]

@@ -32,10 +32,15 @@ def generate():
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             key, separator, value = line.partition("=")
-            if separator and key.strip() == "AUTOMATION_EXECUTE_ORDERS":
+            if separator and key.strip() in ("AUTOMATION_EXECUTE_ORDERS", "AUTOMATION_START_MSK", "AUTOMATION_END_MSK", "AUTOMATION_ANALYSIS_TIMES_MSK"):
                 settings[key.strip()] = value.strip().strip("\"'")
     auto = os.environ.get("AUTOMATION_EXECUTE_ORDERS", settings.get("AUTOMATION_EXECUTE_ORDERS", "false"))
     lines.append("Автоисполнение (конфигурация): " + auto)
+    work_start = os.environ.get("AUTOMATION_START_MSK", settings.get("AUTOMATION_START_MSK", ""))
+    work_end = os.environ.get("AUTOMATION_END_MSK", settings.get("AUTOMATION_END_MSK", ""))
+    analysis_times = os.environ.get("AUTOMATION_ANALYSIS_TIMES_MSK", settings.get("AUTOMATION_ANALYSIS_TIMES_MSK", ""))
+    if work_start and work_end:
+        lines.append("Рабочие часы МСК: " + work_start + "–" + work_end + "; начала окон анализа: " + analysis_times)
     if auto.lower() not in ("true", "1", "t"):
         problems.append("Автоисполнение выключено в конфигурации")
 

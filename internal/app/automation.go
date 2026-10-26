@@ -48,8 +48,15 @@ func automationTick(ctx context.Context,c config.Config,settings config.Analysis
  return automationTickNow(ctx,c,settings,keys,db,api,model,out,false)
 }
 func automationTickNow(ctx context.Context,c config.Config,settings config.Analysis,keys []string,db *storage.Store,api tradingBroker,model decisionModel,out io.Writer,immediate bool)error{
- release,err:=db.AcquireAccount(ctx,c.AccountID);if err!=nil{return err};defer release()
  idle:=func(reason string)error{return printJSON(out,map[string]any{"status":"idle","time":time.Now().UTC(),"reason":reason,"model_attempted":false,"execution_enabled":settings.AutoExecute})}
+ // Check before any broker/model request, including reconciliation and --now.
+ if !settings.Hours.Allows(time.Now().UTC()){return idle("outside configured Moscow working hours")}
+ if settings.Hours.Enabled{
+  _,end:=settings.Hours.Bounds(time.Now().UTC())
+  var cancel context.CancelFunc
+  ctx,cancel=context.WithDeadline(ctx,end);defer cancel()
+ }
+ release,err:=db.AcquireAccount(ctx,c.AccountID);if err!=nil{return err};defer release()
  control,err:=db.TradingControl(ctx,c.AccountID);if err!=nil{return err}
  // Recover pending broker states even while paused, without resubmitting them.
  pending,err:=db.ListIntents(ctx,c.AccountID,true);if err!=nil{return err}
@@ -68,7 +75,7 @@ func automationTickNow(ctx context.Context,c config.Config,settings config.Analy
  if settings.AutoExecute{did,err:=executeAutomatic(ctx,c,db,api,out);if err!=nil{return err};if did{return nil}}
  now:=time.Now().UTC();day:=time.Date(now.Year(),now.Month(),now.Day(),0,0,0,0,time.UTC)
  calendars,err:=api.Schedules(ctx,"",day,day.Add(48*time.Hour));if err!=nil{return err}
- key,reason:=schedule.Due(now,calendars)
+ key,reason:=schedule.DueWithin(now,calendars,settings.Hours)
  if immediate{key="explicit:"+now.Format(time.RFC3339Nano)}else if key==""{return idle(reason)}
  claimed,err:=db.ClaimAnalysisSlot(ctx,c.AccountID,key);if err!=nil{return err};if !claimed{return idle("analysis window already attempted; no automatic retry")}
  // Persist the slot before collection or provider calls. Neither failures nor
